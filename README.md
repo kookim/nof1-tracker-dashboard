@@ -232,7 +232,7 @@ this.refreshInterval = 60;
 4. **配置修改后未生效**
    - 确认已修改 `public/trading-config.js` 文件
    - 重新部署 Worker
-   - 检查浏览器缓存，尝试强制刷新（Ctrl+F5ška）
+   - 检查浏览器缓存，尝试强制刷新（Ctrl+F5）
 
 5. **盈利计算不正确**
    - 检查 `initialAssetValue` 是否设置正确
