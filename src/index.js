@@ -121,14 +121,21 @@ export default {
         // Use the new [assets] binding (recommended) or fall back to [site] KV assets
         
         // Method 1: Try new [assets] binding (simpler, recommended)
+        // Note: ASSETS binding is automatically created by Cloudflare when [assets] is configured
         if (env.ASSETS && typeof env.ASSETS.fetch === 'function') {
-            // Handle root path - redirect to binance-tracker.html
-            if (pathname === '/') {
-                const indexPath = new URL('/binance-tracker.html', request.url);
-                return env.ASSETS.fetch(new Request(indexPath.toString(), request));
+            try {
+                // Handle root path - redirect to binance-tracker.html
+                if (pathname === '/') {
+                    const indexPath = new URL('/binance-tracker.html', request.url);
+                    return await env.ASSETS.fetch(new Request(indexPath.toString(), request));
+                }
+                // For all other paths, use assets binding
+                return await env.ASSETS.fetch(request);
+            } catch (assetError) {
+                // If ASSETS.fetch fails, log and try fallback methods
+                console.error('ASSETS.fetch error:', assetError.message);
+                // Fall through to try other methods
             }
-            // For all other paths, use assets binding
-            return env.ASSETS.fetch(request);
         }
         
         // Method 2: Fall back to [site] KV assets (legacy method)
@@ -158,11 +165,24 @@ export default {
         }
         
         // Neither method available - configuration error
+        // This usually means [assets] or [site] configuration wasn't properly deployed
+        const availableEnvKeys = Object.keys(env).filter(k => 
+            k.includes('ASSET') || k.includes('STATIC') || k === 'ASSETS'
+        );
+        
         return new Response(
-            `Static assets not configured. Please ensure:\n` +
-            `1. wrangler.toml includes [assets] directory configuration, OR\n` +
-            `2. wrangler.toml includes [site] bucket configuration\n\n` +
-            `Requested: ${pathname}`,
+            `Static assets not configured.\n\n` +
+            `Debug info:\n` +
+            `- Has ASSETS binding: ${!!env.ASSETS}\n` +
+            `- Has __STATIC_CONTENT: ${!!env.__STATIC_CONTENT}\n` +
+            `- Has __STATIC_CONTENT_MANIFEST: ${!!env.__STATIC_CONTENT_MANIFEST}\n` +
+            `- Related env keys: ${availableEnvKeys.length > 0 ? availableEnvKeys.join(', ') : 'none'}\n\n` +
+            `Please ensure:\n` +
+            `1. wrangler.toml includes [assets] directory configuration\n` +
+            `2. The deployment includes static assets (use 'wrangler deploy' command)\n` +
+            `3. If using Cloudflare Dashboard Git integration, ensure it uses 'wrangler deploy'\n\n` +
+            `Requested: ${pathname}\n` +
+            `Note: ASSETS binding is auto-created - no manual environment variable needed.`,
             { 
                 status: 503,
                 headers: { 
