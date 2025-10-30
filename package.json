@@ -4,7 +4,8 @@
   "description": "Nof1交易数据监控面板 - 安全的币安合约数据展示",
   "main": "src/index.js",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "node dev-server.js",
+    "dev:worker": "wrangler dev",
     "deploy": "wrangler deploy",
     "start": "wrangler dev"
   },

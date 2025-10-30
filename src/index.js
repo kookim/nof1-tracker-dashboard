@@ -123,31 +123,44 @@ export default {
             if (pathname === '/') {
                 url.pathname = '/binance-tracker.html';
             }
-            const options = {
-                mapRequestToAsset: req => {
-                    const url = new URL(req.url);
-                    if (url.pathname === '/binance-tracker.html') {
-                         return new Request(url.toString(), req);
-                    }
-                    return req;
-                }
-            };
 
-            const asset = await getAssetFromKV({
-                request: new Request(url.toString(), request),
-                waitUntil: ctx.waitUntil.bind(ctx),
-            }, {
-                ASSET_NAMESPACE: env.__STATIC_CONTENT,
-                ASSET_MANIFEST: JSON.parse(env.__STATIC_CONTENT_MANIFEST),
-            });
-            
-            return asset;
+            // Check if we're in Cloudflare Workers environment (with KV assets)
+            if (env.__STATIC_CONTENT && env.__STATIC_CONTENT_MANIFEST) {
+                // Production/Deployed: Use Cloudflare KV assets
+                const asset = await getAssetFromKV({
+                    request: new Request(url.toString(), request),
+                    waitUntil: ctx.waitUntil.bind(ctx),
+                }, {
+                    ASSET_NAMESPACE: env.__STATIC_CONTENT,
+                    ASSET_MANIFEST: JSON.parse(env.__STATIC_CONTENT_MANIFEST),
+                });
+                
+                return asset;
+            } else {
+                // Local development: wrangler dev should handle [site] assets automatically
+                // This code path should not normally be reached in local dev
+                // If it is, wrangler's static asset handling may have failed
+                let pathname = new URL(request.url).pathname;
+                return new Response(
+                    `Static asset not available. In local dev, use 'wrangler dev' (not --local) to serve [site] assets. Requested: ${pathname}`,
+                    { 
+                        status: 503,
+                        headers: { 
+                            'Content-Type': 'text/plain; charset=utf-8',
+                            'X-Debug-Info': 'Local development mode - static assets should be handled by wrangler dev'
+                        }
+                    }
+                );
+            }
 
         } catch (e) {
             // If getAssetFromKV throws an error, it means the asset wasn't found.
             // We can return a 404 response.
             let pathname = new URL(request.url).pathname;
-            return new Response(`Asset not found: ${pathname}`, { status: 404 });
+            return new Response(`Asset not found: ${pathname}\nError: ${e.message}`, { 
+                status: 404,
+                headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+            });
         }
     },
 };
