@@ -7,10 +7,7 @@
     "dev": "node dev-server.js",
     "dev:worker": "wrangler dev",
     "deploy": "wrangler deploy",
-    "start": "wrangler dev",
-    "preinstall": "node -e \"const fs=require('fs');const path=require('path');try{fs.writeFileSync('.npmrc','registry=https://registry.npmjs.org/\\nalways-auth=false\\n_auth=\\n//registry.npmjs.org/:_authToken=\\n//registry.npmjs.org/:always-auth=false\\n','utf8');}catch(e){}\"",
-    "build": "echo 'Build complete'",
-    "postinstall": "echo 'Dependencies installed'"
+    "start": "wrangler dev"
   },
   "keywords": [
     "binance",
