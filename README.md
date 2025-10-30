@@ -331,4 +331,15 @@ nof1-tracker-dashboard/
 
 ---
 
-**注意**: 本项目已从 Render 迁移到 Cloudflare Workers。如需旧版本（Render/Express），请查看 git 历史记录。
+## 项目来源
+
+本项目是基于 [terryso/nof1-tracker-dashboard](https://github.com/terryso/nof1-tracker-dashboard) fork 并修改的版本。
+
+**主要改动：**
+- 从 Render/Express 架构迁移到 Cloudflare Workers
+- 添加了本地开发服务器支持
+- 优化了部署流程
+
+**原始项目版权：** Copyright (c) 2025 terryso
+
+**注意**: 本项目已从 Render 迁移到 Cloudflare Workers。如需旧版本（Render/Express），请查看原始仓库或 git 历史记录。
