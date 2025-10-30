@@ -4,3 +4,7 @@ compatibility_date = "2023-12-01"
 
 [site]
 bucket = "./public"
+
+# 确保 Assets 命名空间配置正确
+[env.production]
+compatibility_date = "2023-12-01"

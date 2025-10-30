@@ -20,13 +20,12 @@
   "author": "Nof1 Trading Team",
   "license": "MIT",
   "dependencies": {
-    "crypto": "^1.0.1"
+    "@cloudflare/kv-asset-handler": "^0.4.0"
   },
   "engines": {
     "node": ">=18.0.0"
   },
   "devDependencies": {
-    "@cloudflare/kv-asset-handler": "^0.4.0",
     "wrangler": "^4.45.1"
   }
 }
