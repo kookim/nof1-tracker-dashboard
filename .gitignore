@@ -33,3 +33,6 @@ logs
 tmp/
 temp/
 .claude
+
+# npm 配置（由 preinstall 脚本自动生成）
+.npmrc
