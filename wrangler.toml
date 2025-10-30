@@ -2,5 +2,6 @@ name = "nof1-tracker-dashboard"
 main = "src/index.js"
 compatibility_date = "2023-12-01"
 
-[site]
-bucket = "./public"
+[assets]
+directory = "./public"
+binding = "ASSETS"
