@@ -73,8 +73,8 @@ async function handleBinanceRequest(path, queryParams, env) {
         let response;
         try {
             response = await fetch(url, {
-                headers: { 'X-MBX-APIKEY': BINANCE_API_KEY },
-            });
+            headers: { 'X-MBX-APIKEY': BINANCE_API_KEY },
+        });
         } catch (fetchError) {
             console.error(`[${new Date().toISOString()}] ❌ Fetch调用失败:`, fetchError);
             console.error(`[${new Date().toISOString()}] 错误类型: ${fetchError.constructor.name}`);
