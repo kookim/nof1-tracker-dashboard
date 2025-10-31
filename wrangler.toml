@@ -11,4 +11,3 @@ binding = "ASSETS"
 # Secret 类型变量（BINANCE_SECRET_KEY）不在这里声明，不受影响
 [vars]
 USE_TESTNET = "false"
-BINANCE_API_KEY = ""
