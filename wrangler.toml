@@ -5,3 +5,10 @@ compatibility_date = "2023-12-01"
 [assets]
 directory = "./public"
 binding = "ASSETS"
+
+# 声明 Text 类型环境变量，防止 GitHub 自动部署时丢失
+# Cloudflare GitHub 集成执行 wrangler deploy 时，如果 wrangler.toml 中没有声明 Text 变量，会清空 Dashboard 中的值
+# Secret 类型变量（BINANCE_SECRET_KEY）不在这里声明，不受影响
+[vars]
+USE_TESTNET = "false"
+BINANCE_API_KEY = ""

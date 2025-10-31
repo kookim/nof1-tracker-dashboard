@@ -51,18 +51,31 @@ class BackendAPIClient {
 
     // 获取所有交易记录(用于计算最大盈利/损失)
     async getAllTrades() {
-        try {
-            // 获取足够多的交易记录以覆盖从10月25日以来的所有交易
-            const response = await fetch(`/api/trades?limit=1000`);
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || '获取交易记录失败');
+        // 尝试多个 limit 值，从大到小，仅单次请求，时间过滤放在计算阶段
+        const limits = [1000, 500, 250, 100];
+
+        // 回退为多 limit 降级方式，仅使用 /api/trades?limit=...
+        const limits = [1000, 500, 250, 100];
+        for (const limit of limits) {
+            try {
+                const response = await fetch(`/api/trades?limit=${limit}`);
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    console.warn(`limit=${limit} 接口返回非200:`, errorData.error || response.statusText);
+                    continue;
+                }
+                const data = await response.json();
+                if (Array.isArray(data) && data.length > 0) {
+                    console.log(`成功获取 ${data.length} 条交易记录（limit=${limit}）`);
+                    return data.sort((a, b) => b.time - a.time);
+                }
+                // 空数组则继续尝试更小的 limit（减少噪音不打印日志）
+            } catch (error) {
+                console.warn(`limit=${limit} 请求异常:`, error.message);
             }
-            return await response.json();
-        } catch (error) {
-            console.error('获取所有交易记录失败:', error);
-            throw error;
         }
+        // 所有尝试均返回空或异常，返回空数组交由上层降级
+        return [];
     }
 
     // 检查API配置
@@ -80,6 +93,14 @@ class BackendAPIClient {
     }
 
     }
+
+// 计算最近30天时间窗口（毫秒时间戳，UTC）
+function getThirtyDaysWindow() {
+    const endTime = Date.now();
+    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+    const startTime = endTime - THIRTY_DAYS_MS;
+    return { startTime, endTime };
+}
 
 // 数据管理器
 // 格式化持仓数量显示
@@ -210,20 +231,27 @@ class DataManager {
         try {
             console.log('开始更新数据...');
 
-            // 并行获取所有数据
-            const [accountData, positionsData, tradesData, allTradesData] = await Promise.all([
+            // 并行获取核心数据（必须成功）
+            const [accountData, positionsData, tradesData] = await Promise.all([
                 this.apiClient.getAccountInfo(),
                 this.apiClient.getPositions(),
-                this.apiClient.getUserTrades(25),
-                this.apiClient.getAllTrades() // 获取所有交易用于计算最大盈利/损失
+                this.apiClient.getUserTrades(25)
             ]);
 
-            // 更新数据
+            // 更新核心数据
             this.data.account = accountData;
             this.data.positions = positionsData;
             this.data.trades = tradesData;
-            this.data.allTrades = allTradesData; // 保存所有交易记录
             this.lastUpdate = new Date();
+
+            // 尝试获取所有交易记录（用于计算最大盈利/损失，失败不影响主要功能）
+            try {
+                this.data.allTrades = await this.apiClient.getAllTrades();
+            } catch (allTradesError) {
+                console.warn('获取所有交易记录失败，使用当前交易记录:', allTradesError.message);
+                // 如果获取所有交易失败，使用已获取的25条交易记录作为降级方案
+                this.data.allTrades = tradesData || [];
+            }
 
             // 计算并添加盈亏分析
             this.calculateProfitMetrics();
@@ -283,19 +311,20 @@ class DataManager {
 
     // 计算最大盈利和最大损失(单笔交易)
     calculateMaxProfitLoss() {
-        // 使用所有交易记录进行计算
-        const tradesToAnalyze = this.data.allTrades || this.data.trades;
+        // 使用获取到的所有交易记录；若为空则回退使用当前25笔
+        const tradesToAnalyze = (this.data.allTrades && this.data.allTrades.length > 0)
+            ? this.data.allTrades
+            : this.data.trades;
         if (!tradesToAnalyze || tradesToAnalyze.length === 0) return;
-
-        const baseDate = this.getBaseDate();
+        const { startTime } = getThirtyDaysWindow();
         let maxProfit = 0;  // 单笔最大盈利
         let maxLoss = 0;    // 单笔最大损失
         let totalRealizedPnl = 0; // 总已实现盈亏
 
-        // 筛选基准日期之后的交易
+        // 筛选最近30天的交易
         const filteredTrades = tradesToAnalyze.filter(trade => {
-            const tradeDate = new Date(trade.time);
-            return tradeDate >= baseDate;
+            const tradeTime = typeof trade.time === 'number' ? trade.time : new Date(trade.time).getTime();
+            return tradeTime >= startTime;
         });
 
         // 遍历每笔交易,找出单笔最大盈利和最大损失
@@ -316,6 +345,9 @@ class DataManager {
                 maxLoss = realizedPnl;
             }
         });
+
+        // 标记30天窗口内是否有交易
+        this.data.hasTradesInLastThirtyDays = filteredTrades.length > 0;
 
         // 添加到账户数据中
         this.data.account.maxProfit = maxProfit;
@@ -642,14 +674,18 @@ class UIManager {
     updateDateDisplay() {
         const baseDateDisplay = this.dataManager.getBaseDateDisplay();
 
-        // 更新所有日期显示元素
-        const dateElements = ['baseDateDisplay', 'baseDateDisplay2'];
-        dateElements.forEach(elementId => {
-            const element = document.getElementById(elementId);
-            if (element) {
-                element.textContent = baseDateDisplay;
-            }
-        });
+		// 仅更新账户口径的基准日期显示（可能存在重复 id，全部更新）
+		const baseDateEls = document.querySelectorAll('#baseDateDisplay');
+		if (baseDateEls && baseDateEls.length > 0) {
+			baseDateEls.forEach(el => { el.textContent = baseDateDisplay; });
+		}
+
+        // 交易相关统计文案改为固定“最近30天”，在 HTML 中通过 id=maxPnlDesc 控制
+        const maxPnlDesc = document.getElementById('maxPnlDesc');
+        if (maxPnlDesc) {
+            const hasTrades = !!(this.dataManager.getData() && this.dataManager.getData().hasTradesInLastThirtyDays);
+            maxPnlDesc.textContent = hasTrades ? '最近30天' : '最近30天内暂无交易数据';
+        }
     }
 
     // 更新元素内容

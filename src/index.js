@@ -39,7 +39,23 @@ async function handleBinanceRequest(path, queryParams, env) {
     
     console.log(`[${new Date().toISOString()}] 使用${useTestnet ? '测试网' : '主网'}: ${baseUrl}`);
     
-    const timestamp = Date.now();
+    // 获取币安服务器时间并计算时间差，确保时间戳准确
+    let serverTimeOffset = 0;
+    try {
+        const serverTimeResponse = await fetch(`${baseUrl}/fapi/v1/time`);
+        if (serverTimeResponse.ok) {
+            const serverTimeData = await serverTimeResponse.json();
+            const serverTime = serverTimeData.serverTime;
+            const localTime = Date.now();
+            serverTimeOffset = serverTime - localTime;
+            console.log(`[${new Date().toISOString()}] 币安服务器时间: ${serverTime}, 本地时间: ${localTime}, 时间差: ${serverTimeOffset}ms`);
+        }
+    } catch (error) {
+        console.warn(`[${new Date().toISOString()}] ⚠️ 获取币安服务器时间失败，使用本地时间:`, error.message);
+    }
+    
+    // 使用同步后的时间戳
+    const timestamp = Date.now() + serverTimeOffset;
     const recvWindow = 10000;
     
     // 币安API要求参数按字母顺序排序
@@ -177,10 +193,120 @@ export default {
                 case '/api/positions':
                     return handleBinanceRequest('/fapi/v2/positionRisk', {}, env);
                 case '/api/trades':
-                     const limit = searchParams.get('limit') || '25';
-                     // Fetch more to filter on the server side
-                     const requestLimit = parseInt(limit) <= 100 ? 100 : parseInt(limit);
-                    return handleBinanceRequest('/fapi/v1/userTrades', { limit: requestLimit.toString() }, env);
+                    const limit = searchParams.get('limit') || '25';
+                    const requestLimit = Math.min(Math.max(parseInt(limit) || 25, 1), 1000);
+
+                    // 读取用于服务端过滤的时间窗口参数（不直接传给币安）
+                    const filterStartTime = searchParams.get('startTime');
+                    const filterEndTime = searchParams.get('endTime');
+                    const fromId = searchParams.get('fromId');
+                    const aggregate = searchParams.get('aggregate');
+
+                    // 仅向币安传递允许的参数，避免 400 错误
+                    const binanceParams = { limit: requestLimit.toString() };
+                    if (fromId) binanceParams.fromId = fromId;
+
+                    // 若无需过滤且未请求聚合，直接透传响应
+                    if (!filterStartTime && !filterEndTime && !aggregate) {
+                        return handleBinanceRequest('/fapi/v1/userTrades', binanceParams, env);
+                    }
+
+                    // 执行“全账户”（按符号聚合）查询：
+                    // 1) 从当前持仓推断可能的符号列表
+                    // 2) 对每个符号按 7 天为窗口切片调用 /fapi/v1/userTrades 并合并
+                    try {
+                        const startMs = filterStartTime ? parseInt(filterStartTime, 10) : null;
+                        const endMs = filterEndTime ? parseInt(filterEndTime, 10) : null;
+                        const nowMs = Date.now();
+                        const windowStart = Number.isFinite(startMs) ? startMs : (nowMs - 30 * 24 * 60 * 60 * 1000);
+                        const windowEnd = Number.isFinite(endMs) ? endMs : nowMs;
+
+                        // 获取非零持仓的符号
+                        const posResp = await handleBinanceRequest('/fapi/v2/positionRisk', {}, env);
+                        let positions = [];
+                        if (posResp.ok) positions = await posResp.json();
+                        const symbols = Array.from(new Set(
+                            (Array.isArray(positions) ? positions : [])
+                                .filter(p => parseFloat(p.positionAmt) !== 0 && p.symbol && p.symbol !== 'PUMPUSDT')
+                                .map(p => p.symbol)
+                        ));
+
+                        if (symbols.length === 0) {
+                            // 无持仓则无法推断符号，返回空数组（前端会降级使用最近25笔）
+                            return new Response(JSON.stringify([]), {
+                                headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+                            });
+                        }
+
+                        // 时间切片（最大7天）
+                        const MAX_SLICE_MS = 7 * 24 * 60 * 60 * 1000;
+                        const slices = [];
+                        let cursorEnd = windowEnd;
+                        while (cursorEnd > windowStart) {
+                            const sliceStart = Math.max(windowStart, cursorEnd - MAX_SLICE_MS + 1);
+                            slices.push([sliceStart, cursorEnd]);
+                            cursorEnd = sliceStart - 1;
+                        }
+
+                        const allTrades = [];
+                        const seen = new Set();
+
+                        const MAX_PAGES_PER_SLICE = 10;
+                        for (const symbol of symbols) {
+                            for (const [s, e] of slices) {
+                                let cursorEnd = e;
+                                for (let page = 0; page < MAX_PAGES_PER_SLICE; page++) {
+                                    const params = {
+                                        symbol,
+                                        startTime: s.toString(),
+                                        endTime: cursorEnd.toString(),
+                                        limit: '1000',
+                                    };
+                                    const r = await handleBinanceRequest('/fapi/v1/userTrades', params, env);
+                                    if (!r.ok) break;
+                                    const arr = await r.json();
+                                    if (!Array.isArray(arr) || arr.length === 0) break;
+
+                                    let minTime = Number.MAX_SAFE_INTEGER;
+                                    for (const t of arr) {
+                                        const key = `${t.symbol}-${t.id}`;
+                                        if (!seen.has(key)) {
+                                            seen.add(key);
+                                            allTrades.push(t);
+                                        }
+                                        const tMs = typeof t.time === 'number' ? t.time : Date.parse(t.time);
+                                        if (Number.isFinite(tMs)) {
+                                            if (tMs < minTime) minTime = tMs;
+                                        }
+                                    }
+
+                                    // 若不足一页或已到达切片起点，则停止分页
+                                    if (arr.length < 1000 || minTime <= s) break;
+                                    // 继续向更早时间翻页
+                                    cursorEnd = minTime - 1;
+                                }
+                            }
+                        }
+
+                        // 二次过滤与排序
+                        const filtered = allTrades.filter(t => {
+                            const tMs = typeof t.time === 'number' ? t.time : Date.parse(t.time);
+                            if (!Number.isFinite(tMs)) return false;
+                            return tMs >= windowStart && tMs <= windowEnd;
+                        }).sort((a, b) => b.time - a.time);
+
+                        return new Response(JSON.stringify(filtered), {
+                            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+                        });
+                    } catch (e) {
+                        return new Response(JSON.stringify({
+                            error: '聚合交易查询失败',
+                            details: e.message
+                        }), {
+                            status: 500,
+                            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+                        });
+                    }
                 case '/api/config':
                     const hasConfig = !!(env.BINANCE_API_KEY && env.BINANCE_SECRET_KEY);
                     return new Response(JSON.stringify({ hasConfig, useTestnet: env.USE_TESTNET === 'true' }), {
