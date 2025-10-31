@@ -51,9 +51,6 @@ class BackendAPIClient {
 
     // 获取所有交易记录(用于计算最大盈利/损失)
     async getAllTrades() {
-        // 尝试多个 limit 值，从大到小，仅单次请求，时间过滤放在计算阶段
-        const limits = [1000, 500, 250, 100];
-
         // 回退为多 limit 降级方式，仅使用 /api/trades?limit=...
         const limits = [1000, 500, 250, 100];
         for (const limit of limits) {

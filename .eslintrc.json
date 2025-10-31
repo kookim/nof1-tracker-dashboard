@@ -1,0 +1,17 @@
+{
+  "env": {
+    "browser": true,
+    "worker": true,
+    "es6": true
+  },
+  "parserOptions": {
+    "ecmaVersion": 2021,
+    "sourceType": "module"
+  },
+  "rules": {
+    "no-redeclare": "error",
+    "no-undef": "error",
+    "no-unused-vars": ["error", { "args": "none" }]
+  }
+}
+
