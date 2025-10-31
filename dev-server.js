@@ -14,8 +14,9 @@ const PORT = 8788; // 本地开发服务器端口
 const WRANGLER_PORT = 8787; // wrangler dev 端口
 
 // 启动 wrangler dev 作为后台进程
+// 使用 --remote 模式避免本地网络连接限制（特别是在 WSL 环境下）
 console.log('🚀 启动 Wrangler dev 服务器...');
-const wrangler = spawn('npx', ['wrangler', 'dev', '--port', WRANGLER_PORT], {
+const wrangler = spawn('npx', ['wrangler', 'dev', '--port', WRANGLER_PORT, '--remote'], {
     stdio: 'inherit',
     shell: true
 });
