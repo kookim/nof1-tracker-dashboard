@@ -1,4 +1,4 @@
-name = "nof1-tracker-dashboard"
+name = "nof1"
 main = "src/index.js"
 compatibility_date = "2023-12-01"
 
